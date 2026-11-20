@@ -189,6 +189,9 @@ class SimulationEngine:
 
         # 2. Compute macroeconomic indicators
         metrics = self.calculate_metrics()
+        comparison = getattr(self, "action_result", None)
+        if comparison and len(comparison["trend"]) < 13:
+            comparison["trend"].append(self.outcome_sample())
 
         # 3. Persist periodically to database
         if not getattr(self, "snapshot_managed", False) and (self.tick % 5 == 0 or self.macro_state["food_shock_pct"] > 0):
@@ -675,8 +678,18 @@ class SimulationEngine:
 
         return result
 
+    def outcome_sample(self):
+        metrics = self.metrics_history[-1]
+        return {"tick": self.tick, "distress": metrics["distressed_count"],
+                "savings": metrics["avg_savings"],
+                "traveling": sum(a.target_hub is not None for a in self.agents)}
+
+    def record_action_result(self, action, before):
+        self.action_result = {"action": action, "before": before, "trend": [self.outcome_sample()]}
+
     def get_state(self) -> Dict[str, Any]:
         return {
+            "action_result": getattr(self, "action_result", None),
             "tick": self.tick,
             "run_id": self.run_id,
             "simulation_clock": self.get_simulation_clock(),

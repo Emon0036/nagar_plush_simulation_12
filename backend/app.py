@@ -93,7 +93,9 @@ def step_simulation(automatic: bool = False):
 def inject_shock_event(req: ShockEventRequest):
     """Injects an economic shock (e.g. food_price_shock 0.30, cash_stimulus, tax_change)"""
     with simulation_session(write=True) as engine:
+        before = engine.outcome_sample()
         event = engine.inject_event(req.event_type, req.magnitude or 0.0, req.description or "")
+        engine.record_action_result(req.event_type, before)
         return {
             "status": "success",
             "event": event,
@@ -143,7 +145,9 @@ def support_agent(agent_id: str, req: AgentSupportRequest):
     """Apply a small targeted intervention to one vulnerable resident."""
     try:
         with simulation_session(write=True) as engine:
+            before = engine.outcome_sample()
             result = engine.apply_agent_support(agent_id, req.support_type or "auto")
+            engine.record_action_result("targeted_support", before)
             return {**result, "state": engine.get_state()}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))

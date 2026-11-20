@@ -150,6 +150,14 @@ class CitizenAgent:
         self.path_index = 1 if len(self.current_path) > 1 else 0
         self.activity_started_tick = tick
         self.activity_state = "traveling"
+        at_origin = start_coord == tuple(pathfinder.get_hub_door(self.current_hub))
+        self.record_journey(tick, "departed" if at_origin else "rerouted", target_hub)
+
+    def record_journey(self, tick, event, destination):
+        history = getattr(self, "journey_history", [])
+        history.append({"tick": tick, "event": event, "origin": self.current_hub,
+                        "destination": destination, "reason": self.current_decision.get("reason", "")})
+        self.journey_history = history[-6:]
 
     def step_movement(self, tick: int = 0, environment: Optional[Dict[str, Any]] = None):
         """Steps along the current A* route towards the target destination"""
@@ -170,6 +178,7 @@ class CitizenAgent:
 
         if self.route_progress >= final_segment:
             arrived_hub = self.target_hub
+            self.record_journey(tick, "arrived", arrived_hub)
             self.x, self.y = pathfinder.get_hub_door(arrived_hub)
             self.current_hub = arrived_hub
             self.current_path = []
@@ -390,6 +399,7 @@ class CitizenAgent:
             "next_action": self.next_action,
             "decision": self.current_decision,
             "decision_history": self.decision_history[-8:],
+            "journey_history": getattr(self, "journey_history", []),
             "job_match_requested": self.job_match_requested,
             "automatic_support": self.last_automatic_support,
             "weather_status": self.current_decision.get("activity") if self.current_decision.get("activity") in ("evacuating", "sheltered", "returning_home") else "normal",

@@ -68,6 +68,21 @@ class SimulationPersistenceTests(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_action_trend_and_journeys_survive_reload(self):
+        from backend.app import ShockEventRequest, inject_shock_event
+        with simulation_session() as engine:
+            before = engine.outcome_sample()
+        result = inject_shock_event(ShockEventRequest(event_type="cyclone_warning"))["state"]
+        self.assertEqual(result["action_result"]["before"], before)
+        self.assertEqual(result["action_result"]["trend"][0]["traveling"], result["movement"]["traveling_count"])
+        for _ in range(20):
+            step_simulation()
+        with simulation_session() as engine:
+            self.assertEqual(len(engine.action_result["trend"]), 13)
+            events = [entry for a in engine.agents for entry in a.to_dict()["journey_history"]]
+            self.assertTrue(any(e["event"] == "departed" and e["reason"] for e in events))
+            self.assertTrue(any(e["event"] == "arrived" for e in events))
+
     def test_browser_reset_is_isolated_and_starts_a_new_history(self):
         token = city_key.set("first-browser")
         self.addCleanup(city_key.reset, token)

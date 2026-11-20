@@ -634,20 +634,15 @@ function ActivityFeed({
 function CityMap({
   agents,
   selectedAgentId,
+  trackingId,
   selectedPlace,
-  onAgent: selectAgent,
+  onAgent,
   onPlace,
   showRoutes,
   clock,
   environment,
   cycloneDashboard
 }) {
-  const [trackingId, setTrackingId] = useState(null);
-  const onAgent = agent => {
-    setTrackingId(current => current === agent.id ? null : agent.id);
-    selectAgent(agent);
-  };
-  const trackedAgent = trackingId ? agents.find(agent => agent.id === trackingId) : null;
   // The city map is intentionally a full-population view: all 50 residents
   // stay present while their individual schedules determine who is traveling.
   const visibleAgents = agents;
@@ -1005,7 +1000,65 @@ function Metric({
     className: "metric-label"
   }, label), /*#__PURE__*/React.createElement("strong", null, value), /*#__PURE__*/React.createElement("small", null, detail));
 }
+const actionNames = {
+  food_price_shock: "Food price change",
+  tax_change: "Tax change",
+  cash_stimulus: "Cash stimulus",
+  cyclone_warning: "Cyclone warning",
+  cyclone_landfall: "Cyclone landfall",
+  cyclone_recovery: "Cyclone recovery",
+  reset_baseline: "Return to baseline",
+  targeted_support: "Targeted support"
+};
+function ActionResults({
+  result
+}) {
+  if (!result) return null;
+  const after = result.trend[0];
+  const latest = result.trend[result.trend.length - 1];
+  return /*#__PURE__*/React.createElement("section", {
+    className: "action-results panel-dark",
+    "aria-label": "Action results"
+  }, /*#__PURE__*/React.createElement("h2", null, actionNames[result.action] || "City action"), /*#__PURE__*/React.createElement("p", null, "Before and after the action, followed by up to 12 simulation ticks."), /*#__PURE__*/React.createElement("div", {
+    className: "result-grid"
+  }, [["distress", "Residents in distress"], ["savings", "Average savings"], ["traveling", "Residents traveling"]].map(([key, label]) => {
+    const format = key === "savings" ? money : String;
+    const values = [result.before[key], ...result.trend.map(sample => sample[key])];
+    const low = Math.min(...values),
+      high = Math.max(...values);
+    const points = values.map((v, i) => [4 + i * 192 / (values.length - 1), high === low ? 20 : 36 - 32 * (v - low) / (high - low)]);
+    return /*#__PURE__*/React.createElement("div", {
+      key: key
+    }, /*#__PURE__*/React.createElement("h3", null, label), /*#__PURE__*/React.createElement("p", null, "Before ", /*#__PURE__*/React.createElement("strong", null, format(result.before[key])), " \u2192 After ", /*#__PURE__*/React.createElement("strong", null, format(after[key]))), /*#__PURE__*/React.createElement("svg", {
+      viewBox: "0 0 200 40",
+      role: "img",
+      "aria-label": label + " trend: " + values.map(format).join(", ")
+    }, /*#__PURE__*/React.createElement("polyline", {
+      points: points.map(p => p.join(",")).join(" "),
+      fill: "none",
+      stroke: "currentColor",
+      strokeWidth: "2"
+    }), points.map(([x, y], i) => /*#__PURE__*/React.createElement("circle", {
+      key: i,
+      cx: x,
+      cy: y,
+      r: "2.2",
+      fill: "currentColor"
+    }))), /*#__PURE__*/React.createElement("small", null, "Tick ", latest.tick, " \xB7 ", format(latest[key])));
+  })));
+}
+function ResidentJourney({
+  agent
+}) {
+  const entries = agent.journey_history || [];
+  return /*#__PURE__*/React.createElement("section", {
+    className: "journey-log"
+  }, /*#__PURE__*/React.createElement("h3", null, "Journey timeline"), entries.length ? /*#__PURE__*/React.createElement("ol", null, entries.slice().reverse().map((item, i) => /*#__PURE__*/React.createElement("li", {
+    key: i
+  }, /*#__PURE__*/React.createElement("small", null, "Tick ", item.tick, " \xB7 ", clockForTick(item.tick).time), /*#__PURE__*/React.createElement("strong", null, item.event === "arrived" ? "Arrived at " + agentHub(item.destination) : item.event === "rerouted" ? "Rerouted to " + agentHub(item.destination) : "Left " + agentHub(item.origin) + " for " + agentHub(item.destination)), item.event !== "arrived" && /*#__PURE__*/React.createElement("span", null, item.reason)))) : /*#__PURE__*/React.createElement("p", null, "At ", agentHub(agent.current_hub), ". The next recorded journey will appear here."));
+}
 function App() {
+  const [following, setFollowing] = useState(false);
   const [state, setState] = useState(null);
   const [agents, setAgents] = useState([]);
   const [selectedAgent, setSelectedAgent] = useState(null);
@@ -1093,6 +1146,7 @@ function App() {
       const next = await request("/api/reset", null, "POST");
       display(next);
       setSelectedAgent(null);
+      setFollowing(false);
       setSelectedPlace("housing");
       setShowRoutes(true);
       setLayer("all");
@@ -1236,7 +1290,9 @@ function App() {
     className: "tick-card"
   }, /*#__PURE__*/React.createElement("span", {
     className: "metric-label"
-  }, "Simulation day"), /*#__PURE__*/React.createElement("strong", null, clock.day), /*#__PURE__*/React.createElement("small", null, "96 ticks \xB7 15 min each"))), /*#__PURE__*/React.createElement("section", {
+  }, "Simulation day"), /*#__PURE__*/React.createElement("strong", null, clock.day), /*#__PURE__*/React.createElement("small", null, "96 ticks \xB7 15 min each"))), /*#__PURE__*/React.createElement(ActionResults, {
+    result: state?.action_result
+  }), /*#__PURE__*/React.createElement("section", {
     className: "workspace-grid"
   }, /*#__PURE__*/React.createElement("div", {
     className: "map-panel panel-dark"
@@ -1258,8 +1314,12 @@ function App() {
     key: state?.run_id,
     agents: allAgents,
     selectedAgentId: selected?.id,
+    trackingId: following ? selected?.id : null,
     selectedPlace: selectedPlace,
-    onAgent: agent => setSelectedAgent(agent),
+    onAgent: agent => {
+      setSelectedAgent(agent);
+      setFollowing(true);
+    },
     onPlace: setSelectedPlace,
     showRoutes: showRoutes,
     clock: clock,
@@ -1314,7 +1374,14 @@ function App() {
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "route",
     size: 14
-  }), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("small", null, "Today's journey"), /*#__PURE__*/React.createElement("strong", null, PLACE_META[selected.current_hub]?.short || "Home", " ", /*#__PURE__*/React.createElement("b", null, "\u2192"), " ", journeyTargetOf(selected)))))), /*#__PURE__*/React.createElement("section", {
+  }), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("small", null, "Today's journey"), /*#__PURE__*/React.createElement("strong", null, PLACE_META[selected.current_hub]?.short || "Home", " ", /*#__PURE__*/React.createElement("b", null, "\u2192"), " ", journeyTargetOf(selected)))), /*#__PURE__*/React.createElement("button", {
+    className: "small-toggle follow-resident",
+    disabled: !state,
+    "aria-pressed": following,
+    onClick: () => setFollowing(value => !value)
+  }, following ? "Stop following" : "Follow resident"), following && /*#__PURE__*/React.createElement(ResidentJourney, {
+    agent: selected
+  }))), /*#__PURE__*/React.createElement("section", {
     className: "place-panel panel-dark"
   }, /*#__PURE__*/React.createElement("div", {
     className: "panel-head compact"
