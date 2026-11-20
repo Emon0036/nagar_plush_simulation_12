@@ -3,6 +3,7 @@ import sqlite3
 import json
 import logging
 import threading
+import certifi
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 from backend.config import config
@@ -32,7 +33,9 @@ class DatabaseManager:
                 user=config.MYSQL_USER,
                 password=config.MYSQL_PASSWORD,
                 database=config.MYSQL_DATABASE,
+                use_pure=True,
                 ssl_disabled=False,
+                ssl_ca=certifi.where(),
                 ssl_verify_cert=True,
                 ssl_verify_identity=True,
                 connection_timeout=5

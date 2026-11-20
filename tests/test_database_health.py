@@ -1,11 +1,20 @@
 import unittest
 from unittest.mock import MagicMock, patch
+import certifi
 
 from backend.app import get_database_status
 from backend.database.db import db_manager
 
 
 class DatabaseHealthTests(unittest.TestCase):
+    def test_mysql_uses_bundled_ca_and_verifies_server_identity(self):
+        with patch("mysql.connector.connect") as connect:
+            db_manager.get_mysql_connection()
+        self.assertTrue(connect.call_args.kwargs["use_pure"])
+        self.assertEqual(connect.call_args.kwargs["ssl_ca"], certifi.where())
+        self.assertTrue(connect.call_args.kwargs["ssl_verify_cert"])
+        self.assertTrue(connect.call_args.kwargs["ssl_verify_identity"])
+
     def test_mysql_probe_executes_query_and_closes_connection(self):
         connection = MagicMock()
         with patch.object(db_manager, "db_type", "mysql"), patch.object(
