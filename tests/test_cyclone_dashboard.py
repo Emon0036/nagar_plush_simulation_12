@@ -14,6 +14,18 @@ class CycloneDashboardTests(unittest.TestCase):
         self.assertEqual(dashboard["stage"], "normal")
         self.assertIn("feed", dashboard)
 
+    def test_recovery_ends_without_resetting_economic_policy(self):
+        engine = self.make_engine()
+        engine.inject_event("tax_change", 0.2)
+        engine.inject_event("cyclone_warning", 0.55)
+        engine.inject_event("cyclone_recovery", 0)
+        for _ in range(96):
+            engine.step()
+            if engine.macro_state["environment"]["stage"] == "normal":
+                break
+        self.assertEqual(engine.macro_state["environment"]["stage"], "normal")
+        self.assertEqual(engine.macro_state["tax_rate"], 0.2)
+
     def test_warning_switches_to_emergency_and_routes_agents(self):
         engine = self.make_engine()
         engine.inject_event("cyclone_warning", 0.55, "Test warning")

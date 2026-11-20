@@ -130,6 +130,14 @@ class SimulationEngine:
         """
         self.tick += 1
         self._update_clock()
+        environment = self.macro_state["environment"]
+        if (environment["stage"] == "recovery"
+                and self.tick > environment.get("recovery_started_tick", -1) + 1
+                and all(a.current_hub == a.home_hub and a.target_hub is None for a in self.agents)):
+            environment.update(stage="normal", severity=0.0, wind_kph=0, rain_intensity=0.0,
+                               damage_applied=False, title="Clear weather",
+                               description="Normal city movement and routines.")
+            self._add_cyclone_feed("🟢", "All residents returned home. Daily routines resumed.")
 
         # 1. Agent decision loop & spatial movement
         cyclone_decision_updates = 0
@@ -515,6 +523,7 @@ class SimulationEngine:
             desc = description or f"{title}: {detail}"
             self.macro_state["active_event_description"] = desc
             if event_type == "cyclone_recovery":
+                environment["recovery_started_tick"] = self.tick
                 self._add_cyclone_feed("🟢", "Cyclone passed; recovery and return-home routes started")
         elif event_type == "reset_baseline":
             self.macro_state["food_shock_pct"] = 0.0
