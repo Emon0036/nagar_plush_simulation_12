@@ -1,0 +1,46 @@
+{
+  "feature_names": [
+    "essential_to_income_ratio",
+    "savings_to_expense_ratio",
+    "debt_to_income_ratio",
+    "food_shock_pct",
+    "inflation_rate",
+    "job_stability",
+    "dependents"
+  ],
+  "weights": {
+    "essential_to_income_ratio": 3.5779,
+    "savings_to_expense_ratio": -9.684,
+    "debt_to_income_ratio": 2.4804,
+    "food_shock_pct": 0.5135,
+    "inflation_rate": 0.0984,
+    "job_stability": -0.6235,
+    "dependents": 0.6735
+  },
+  "intercept": -9.397,
+  "scaler_mean": [
+    0.6907390999999999,
+    3.412240975,
+    0.41125035,
+    0.25148760000000003,
+    0.110272325,
+    0.640029775,
+    1.683
+  ],
+  "scaler_scale": [
+    0.17467323172481236,
+    3.6437684287020833,
+    0.6101952964214633,
+    0.14426773425211892,
+    0.04026407100746737,
+    0.19741276361585483,
+    1.30319261814975
+  ],
+  "metrics": {
+    "accuracy": 0.9415,
+    "precision": 0.8505,
+    "recall": 0.8082,
+    "roc_auc": 0.9827,
+    "samples_trained": 50000
+  }
+}

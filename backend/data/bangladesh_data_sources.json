@@ -1,0 +1,31 @@
+{
+  "reference_year": 2022,
+  "population": 169384897,
+  "unemployment_rate": 0.04593,
+  "average_monthly_household_income_bdt": 32422,
+  "notes": [
+    "Profiles are synthetic household-level simulation agents, not real people.",
+    "Names, ages, balances, debts, goals, and addresses are generated.",
+    "Income values are modelling inputs calibrated around the published household-income benchmark."
+  ],
+  "sources": [
+    {
+      "publisher": "World Bank Open Data",
+      "series": "Population, total - Bangladesh",
+      "value": 169384897,
+      "url": "https://api.worldbank.org/v2/country/BGD/indicator/SP.POP.TOTL?format=json"
+    },
+    {
+      "publisher": "World Bank Open Data / ILO modeled estimate",
+      "series": "Unemployment, total (% of total labor force) - Bangladesh",
+      "value": 4.593,
+      "url": "https://api.worldbank.org/v2/country/BGD/indicator/SL.UEM.TOTL.ZS?format=json"
+    },
+    {
+      "publisher": "Bangladesh Bureau of Statistics",
+      "series": "Household Income and Expenditure Survey 2022",
+      "value": "Average monthly household income: BDT 32,422",
+      "url": "https://bbs.portal.gov.bd/"
+    }
+  ]
+}

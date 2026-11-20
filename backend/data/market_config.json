@@ -1,0 +1,127 @@
+{
+  "currency": "BDT",
+  "base_inflation": 0.05,
+  "base_tax_rate": 0.10,
+  "poverty_line_monthly_bdt": 8500,
+  "distress_savings_threshold_months": 1.5,
+  "commodities": {
+    "food_basket": {
+      "name": "Monthly Food Basket (Rice, Lentils, Oil, Produce)",
+      "category": "essential",
+      "base_price_bdt": 4500,
+      "elasticity": 0.25,
+      "current_price_bdt": 4500
+    },
+    "housing_rent": {
+      "name": "Housing & Shelter Rent",
+      "category": "essential",
+      "base_price_bdt": 7000,
+      "elasticity": 0.15,
+      "current_price_bdt": 7000
+    },
+    "utilities": {
+      "name": "Electricity, Gas & Water",
+      "category": "essential",
+      "base_price_bdt": 1800,
+      "elasticity": 0.20,
+      "current_price_bdt": 1800
+    },
+    "transport": {
+      "name": "Public Transit & Commute",
+      "category": "essential",
+      "base_price_bdt": 2200,
+      "elasticity": 0.35,
+      "current_price_bdt": 2200
+    },
+    "healthcare": {
+      "name": "Basic Healthcare & Medicine",
+      "category": "essential",
+      "base_price_bdt": 1500,
+      "elasticity": 0.10,
+      "current_price_bdt": 1500
+    },
+    "education_fees": {
+      "name": "Education / Tuition / Upskilling",
+      "category": "semi-essential",
+      "base_price_bdt": 3000,
+      "elasticity": 0.50,
+      "current_price_bdt": 3000
+    },
+    "discretionary_dining": {
+      "name": "Dining & Recreation",
+      "category": "discretionary",
+      "base_price_bdt": 3500,
+      "elasticity": 1.80,
+      "current_price_bdt": 3500
+    },
+    "tech_laptop": {
+      "name": "Personal Laptop / Electronics",
+      "category": "asset_goal",
+      "base_price_bdt": 65000,
+      "elasticity": 2.20,
+      "current_price_bdt": 65000
+    }
+  },
+  "job_market_templates": [
+    {
+      "job_id": "job_prog_01",
+      "title": "Software Programmer",
+      "sector": "Technology",
+      "required_education": "Bachelor",
+      "required_skills": ["Coding", "Problem Solving"],
+      "offered_salary_bdt": 35000,
+      "capacity": 15,
+      "workplace_hub": "workplace"
+    },
+    {
+      "job_id": "job_bank_01",
+      "title": "Bank Financial Officer",
+      "sector": "Banking",
+      "required_education": "Bachelor",
+      "required_skills": ["Accounting", "Analysis"],
+      "offered_salary_bdt": 42000,
+      "capacity": 10,
+      "workplace_hub": "bank"
+    },
+    {
+      "job_id": "job_teach_01",
+      "title": "School Teacher / Educator",
+      "sector": "Education",
+      "required_education": "Bachelor",
+      "required_skills": ["Communication", "Pedagogy"],
+      "offered_salary_bdt": 25000,
+      "capacity": 12,
+      "workplace_hub": "education"
+    },
+    {
+      "job_id": "job_retail_01",
+      "title": "Market Store Manager",
+      "sector": "Retail",
+      "required_education": "Higher Secondary",
+      "required_skills": ["Sales", "Customer Service"],
+      "offered_salary_bdt": 18000,
+      "capacity": 20,
+      "workplace_hub": "market"
+    },
+    {
+      "job_id": "job_mfg_01",
+      "title": "Garment & Factory Technician",
+      "sector": "Manufacturing",
+      "required_education": "Secondary",
+      "required_skills": ["Machine Operation", "Craft"],
+      "offered_salary_bdt": 14500,
+      "capacity": 25,
+      "workplace_hub": "workplace"
+    },
+    {
+      "job_id": "job_trans_01",
+      "title": "City Logistics & Driver",
+      "sector": "Transport",
+      "required_education": "Secondary",
+      "required_skills": ["Driving", "Navigation"],
+      "offered_salary_bdt": 16000,
+      "capacity": 18,
+      "workplace_hub": "city_center"
+    }
+  ]
+}
