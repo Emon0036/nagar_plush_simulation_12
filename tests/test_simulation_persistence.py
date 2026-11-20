@@ -70,7 +70,10 @@ class SimulationPersistenceTests(unittest.TestCase):
 
     def test_multiple_automatic_requests_share_one_tick(self):
         with patch("backend.simulation.persistence.time.time", return_value=100.0):
-            self.assertEqual(step_simulation(automatic=True)["tick"], 1)
+            state = step_simulation(automatic=True)
+            self.assertEqual(state["tick"], 1)
+            self.assertEqual(len(state["agents_summary"]), state["metrics"]["total_agents"])
+            self.assertIn("movement", state)
             self.assertEqual(step_simulation(automatic=True)["tick"], 1)
             self.assertEqual(step_simulation(automatic=False)["tick"], 2)
         with patch("backend.simulation.persistence.time.time", return_value=101.1):

@@ -89,10 +89,7 @@ const TRACK_LABELS = {
   education: "School / college",
   city_center: "Urban center"
 };
-
-// Faster demonstration clock: 96 fifteen-minute ticks complete one simulated
-// day in about 96 real seconds while the backend time model stays unchanged.
-const REAL_TICK_MS = 1000;
+const REAL_TICK_MS = 500;
 const DEMO_AGENTS = [{
   id: "demo-1",
   name: "Rohan Rahman",
@@ -646,10 +643,6 @@ function CityMap({
   cycloneDashboard
 }) {
   const [trackingId, setTrackingId] = useState(null);
-  const [liveEnvironment, setLiveEnvironment] = useState(environment || null);
-  useEffect(() => {
-    fetch("/api/state").then(response => response.json()).then(data => setLiveEnvironment(data.macro_state?.environment || null)).catch(() => {});
-  }, [agents]);
   const onAgent = agent => {
     setTrackingId(current => current === agent.id ? null : agent.id);
     selectAgent(agent);
@@ -690,7 +683,7 @@ function CityMap({
     const startedAt = performance.now();
     let frame;
     const animate = now => {
-      const progress = Math.min((now - startedAt) / Math.max(REAL_TICK_MS - 120, 700), 1);
+      const progress = Math.min((now - startedAt) / REAL_TICK_MS, 1);
       targets.forEach((target, id) => {
         const start = starts.get(id) || target;
         const eased = 1 - Math.pow(1 - progress, 3);
@@ -719,9 +712,9 @@ function CityMap({
   const priorityRoutes = routeCandidates.filter(agent => agent.id === selectedAgentId || agent.id === trackingId);
   const priorityIds = new Set(priorityRoutes.map(agent => agent.id));
   const routeAgents = [...priorityRoutes, ...routeCandidates.filter(agent => !priorityIds.has(agent.id))].slice(0, 14);
-  const weatherStage = (environment || liveEnvironment)?.stage || "normal";
-  const cycloneMode = cycloneModeOf(cycloneDashboard, environment || liveEnvironment);
-  const shelterHub = cycloneDashboard?.available_shelters?.[0]?.id || (environment || liveEnvironment)?.shelter_hub || "city_center";
+  const weatherStage = environment?.stage || "normal";
+  const cycloneMode = cycloneModeOf(cycloneDashboard, environment);
+  const shelterHub = cycloneDashboard?.available_shelters?.[0]?.id || environment?.shelter_hub || "city_center";
   const shelterPosition = HUB_POSITIONS[shelterHub];
   return /*#__PURE__*/React.createElement("div", {
     className: `city-map-wrap weather-wrap-${weatherStage}`
@@ -1053,110 +1046,78 @@ function App() {
     });
   }, [allAgents, layer, query]);
   const movement = state?.movement || {};
-  const selected = selectedAgent || filteredAgents[0] || allAgents[0];
+  const selected = allAgents.find(agent => agent.id === selectedAgent?.id) || filteredAgents[0] || allAgents[0];
   const total = metrics.total_agents || allAgents.length;
   const atRisk = metrics.distressed_count ?? allAgents.filter(agent => statusOf(agent) === "risk").length;
   const employment = allAgents.length ? Math.round((1 - allAgents.filter(agent => statusOf(agent) === "unemployed").length / allAgents.length) * 100) : 0;
   const placeInfo = PLACE_META[selectedPlace];
   const selectedPlaceAgents = allAgents.filter(agent => agent.current_hub === selectedPlace || agent.target_hub === selectedPlace);
-  async function loadData() {
-    try {
-      const response = await fetch("/api/state");
-      if (!response.ok) throw new Error("The local model is not responding yet.");
-      const next = await response.json();
-      setState(next);
-      const people = await fetch("/api/agents?limit=50");
-      if (people.ok) {
-        const data = await people.json();
-        setAgents(data.agents || []);
-        if (!selectedAgent && data.agents?.length) setSelectedAgent(data.agents[0]);
-      }
-      setError("");
-    } catch (err) {
-      setError("Preview mode · start python app.py to connect the live model");
-    }
+  const pending = useRef(0);
+  const tail = useRef(Promise.resolve());
+  function runAction(action, automatic = false) {
+    if (automatic && (pending.current || document.hidden)) return;
+    pending.current += 1;
+    if (!automatic) setBusy(true);
+    tail.current = tail.current.then(action).then(() => setError("")).catch(err => {
+      setError(err.message || "The city could not be updated. Please retry.");
+    }).finally(() => {
+      pending.current -= 1;
+      if (!pending.current) setBusy(false);
+    });
   }
-  async function step(automatic = false) {
-    setBusy(true);
-    try {
-      const response = await fetch(automatic === true ? "/api/step?automatic=true" : "/api/step", {
-        method: "POST"
+  async function request(url, body, method = "GET") {
+    const options = {
+      method
+    };
+    if (body) {
+      options.headers = {
+        "Content-Type": "application/json"
+      };
+      options.body = JSON.stringify(body);
+    }
+    const response = await fetch(url, options);
+    if (!response.ok) throw new Error(`City request failed (${response.status}). Please retry.`);
+    return response.json();
+  }
+  function display(next) {
+    setState(next);
+    setAgents(next.agents_summary);
+  }
+  function loadData() {
+    runAction(async () => display(await request("/api/state")));
+  }
+  function step(automatic = false) {
+    runAction(async () => display(await request(automatic ? "/api/step?automatic=true" : "/api/step", null, "POST")), automatic);
+  }
+  function event(eventType, magnitude, label) {
+    runAction(async () => {
+      const payload = await request("/api/event", {
+        event_type: eventType,
+        magnitude
+      }, "POST");
+      display(payload.state);
+      setNotice(label);
+      setImpact({
+        title: label,
+        detail: `Residents under pressure: ${payload.new_metrics.distressed_count}`,
+        support: eventType === "cash_stimulus" ? money(magnitude) : eventType === "reset_baseline" ? "0 BDT" : impact.support
       });
-      if (response.ok) {
-        setState(await response.json());
-        const people = await fetch("/api/agents?limit=50");
-        if (people.ok) setAgents((await people.json()).agents || []);
-      }
-    } catch (err) {
-      setError("The city is paused while the local model reconnects.");
-    } finally {
-      setBusy(false);
-    }
+    });
   }
-  async function event(eventType, magnitude, label) {
-    setBusy(true);
-    setNotice(label);
-    try {
-      const before = metrics;
-      const response = await fetch("/api/event", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          event_type: eventType,
-          magnitude
-        })
-      });
-      if (response.ok) {
-        const payload = await response.json();
-        const after = payload.new_metrics || {};
-        const beforeRisk = before.distressed_count ?? "—";
-        const afterRisk = after.distressed_count ?? "—";
-        const detail = eventType === "food_price_shock" ? `Essential costs rise · pressure ${beforeRisk} → ${afterRisk} residents` : eventType === "tax_change" ? `Take-home pay shifts · danger ${beforeRisk} → ${afterRisk} residents` : eventType.startsWith("cyclone") ? `Weather stage changed · danger ${beforeRisk} → ${afterRisk} residents` : eventType === "cash_stimulus" ? "Targeted transfers reach vulnerable households" : "All scenario values returned to baseline";
-        setImpact({
-          title: label,
-          detail,
-          support: eventType === "cash_stimulus" ? money(magnitude) : eventType === "reset_baseline" ? "0 BDT" : impact.support
-        });
-        await loadData();
-      }
-    } catch (err) {
-      setError("Scenario preview only · connect the server to apply it to the model");
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function applySupport() {
+  function applySupport() {
     if (!selected?.id) return;
-    setBusy(true);
-    try {
-      const response = await fetch(`/api/agents/${encodeURIComponent(selected.id)}/support`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          support_type: selected.next_action?.support_type || "auto"
-        })
-      });
-      if (!response.ok) throw new Error("Support could not be applied.");
-      const payload = await response.json();
-      const before = Math.round((Number(payload.before_risk) || 0) * 100);
-      const after = Math.round((Number(payload.after_risk) || 0) * 100);
+    runAction(async () => {
+      const payload = await request(`/api/agents/${encodeURIComponent(selected.id)}/support`, {
+        support_type: selected.next_action?.support_type || "auto"
+      }, "POST");
+      display(payload.state);
       setSelectedAgent(payload.agent);
       setImpact({
         title: "Targeted support applied",
-        detail: `${payload.description} · risk ${before}% → ${after}% · danger ${payload.before_danger_count} → ${payload.after_danger_count} residents`,
+        detail: payload.description,
         support: "Personalized"
       });
-      await loadData();
-      setSelectedAgent(payload.agent);
-    } catch (err) {
-      setError("Support could not be applied while the local model is reconnecting.");
-    } finally {
-      setBusy(false);
-    }
+    });
   }
   useEffect(() => {
     loadData();
@@ -1202,7 +1163,7 @@ function App() {
     size: 15
   }), /*#__PURE__*/React.createElement("span", null, playing ? "Pause" : "Resume")), /*#__PURE__*/React.createElement("button", {
     className: "icon-btn",
-    onClick: step,
+    onClick: () => step(false),
     disabled: busy,
     title: "Advance one simulation tick"
   }, /*#__PURE__*/React.createElement(Icon, {
@@ -1464,33 +1425,24 @@ function App() {
     size: 13
   }))), /*#__PURE__*/React.createElement("footer", {
     className: "footer-note"
-  }, /*#__PURE__*/React.createElement("span", null, "EcoSim AI \xB7 synthetic city data for exploration"), /*#__PURE__*/React.createElement("span", null, "Tick ", state?.tick ?? 0, " \xB7 ", busy ? "Updating model…" : "Model ready"))));
+  }, /*#__PURE__*/React.createElement("span", null, "EcoSim AI \xB7 synthetic city data for exploration"), /*#__PURE__*/React.createElement("span", null, "Tick ", state?.tick ?? 0, " \xB7 ", busy ? "Updating model…" : "Model ready"))), /*#__PURE__*/React.createElement(CycloneControls, {
+    onEvent: event
+  }));
 }
-function CycloneControls() {
-  const trigger = async (eventType, magnitude) => {
-    await fetch("/api/event", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        event_type: eventType,
-        magnitude
-      })
-    });
-    window.location.reload();
-  };
+function CycloneControls({
+  onEvent
+}) {
   return /*#__PURE__*/React.createElement("div", {
     className: "weather-controls"
   }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement(Icon, {
     name: "storm",
     size: 15
   }), /*#__PURE__*/React.createElement("strong", null, "Weather scenario")), /*#__PURE__*/React.createElement("button", {
-    onClick: () => trigger("cyclone_warning", .55)
+    onClick: () => onEvent("cyclone_warning", .55, "Cyclone warning")
   }, "Warning"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => trigger("cyclone_landfall", .85)
+    onClick: () => onEvent("cyclone_landfall", .85, "Cyclone landfall")
   }, "Landfall"), /*#__PURE__*/React.createElement("button", {
-    onClick: () => trigger("cyclone_recovery", 0)
+    onClick: () => onEvent("cyclone_recovery", 0, "Cyclone recovery")
   }, "Recover"));
 }
-ReactDOM.createRoot(document.getElementById("root")).render(/*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(App, null), /*#__PURE__*/React.createElement(CycloneControls, null)));
+ReactDOM.createRoot(document.getElementById("root")).render(/*#__PURE__*/React.createElement(App, null));

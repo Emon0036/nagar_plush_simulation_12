@@ -27,9 +27,7 @@ const TRACK_LABELS = {
   city_center: "Urban center",
 };
 
-// Faster demonstration clock: 96 fifteen-minute ticks complete one simulated
-// day in about 96 real seconds while the backend time model stays unchanged.
-const REAL_TICK_MS = 1000;
+const REAL_TICK_MS = 500;
 
 const DEMO_AGENTS = [
   { id: "demo-1", name: "Rohan Rahman", occupation: "Programmer", education: "Bachelor", income: 30000, savings: 5000, risk_score: 0.42, is_distressed: 0, goal: "Buy a laptop", current_hub: "housing", target_hub: "workplace", x: 5, y: 6 },
@@ -226,8 +224,6 @@ function ActivityFeed({ feed = [] }) {
 
 function CityMap({ agents, selectedAgentId, selectedPlace, onAgent: selectAgent, onPlace, showRoutes, clock, environment, cycloneDashboard }) {
   const [trackingId, setTrackingId] = useState(null);
-  const [liveEnvironment, setLiveEnvironment] = useState(environment || null);
-  useEffect(() => { fetch("/api/state").then((response) => response.json()).then((data) => setLiveEnvironment(data.macro_state?.environment || null)).catch(() => {}); }, [agents]);
   const onAgent = (agent) => {
     setTrackingId((current) => current === agent.id ? null : agent.id);
     selectAgent(agent);
@@ -260,7 +256,7 @@ function CityMap({ agents, selectedAgentId, selectedPlace, onAgent: selectAgent,
     const startedAt = performance.now();
     let frame;
     const animate = (now) => {
-      const progress = Math.min((now - startedAt) / Math.max(REAL_TICK_MS - 120, 700), 1);
+      const progress = Math.min((now - startedAt) / REAL_TICK_MS, 1);
       targets.forEach((target, id) => {
         const start = starts.get(id) || target;
         const eased = 1 - Math.pow(1 - progress, 3);
@@ -286,9 +282,9 @@ function CityMap({ agents, selectedAgentId, selectedPlace, onAgent: selectAgent,
   const priorityRoutes = routeCandidates.filter((agent) => agent.id === selectedAgentId || agent.id === trackingId);
   const priorityIds = new Set(priorityRoutes.map((agent) => agent.id));
   const routeAgents = [...priorityRoutes, ...routeCandidates.filter((agent) => !priorityIds.has(agent.id))].slice(0, 14);
-  const weatherStage = (environment || liveEnvironment)?.stage || "normal";
-  const cycloneMode = cycloneModeOf(cycloneDashboard, environment || liveEnvironment);
-  const shelterHub = cycloneDashboard?.available_shelters?.[0]?.id || (environment || liveEnvironment)?.shelter_hub || "city_center";
+  const weatherStage = environment?.stage || "normal";
+  const cycloneMode = cycloneModeOf(cycloneDashboard, environment);
+  const shelterHub = cycloneDashboard?.available_shelters?.[0]?.id || environment?.shelter_hub || "city_center";
   const shelterPosition = HUB_POSITIONS[shelterHub];
   return <div className={`city-map-wrap weather-wrap-${weatherStage}`}><svg className="city-map" viewBox="0 0 876 518" aria-label="Interactive dark city map" role="img">
     <defs><pattern id="city-grid" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M32 0H0V32" fill="none" stroke="#1b332c" strokeWidth="1" /></pattern><filter id="soft-glow"><feGaussianBlur stdDeviation="3" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter></defs>
@@ -322,15 +318,70 @@ function App() {
   const [state, setState] = useState(null); const [agents, setAgents] = useState([]); const [selectedAgent, setSelectedAgent] = useState(null); const [selectedPlace, setSelectedPlace] = useState("housing"); const [playing, setPlaying] = useState(true); const [showRoutes, setShowRoutes] = useState(true); const [layer, setLayer] = useState("all"); const [query, setQuery] = useState(""); const [busy, setBusy] = useState(false); const [notice, setNotice] = useState("Baseline conditions"); const [impact, setImpact] = useState({ title: "Baseline conditions", detail: "No economic shift is active", support: "0 BDT" }); const [error, setError] = useState("");
   const metrics = state?.metrics || {}; const macro = state?.macro_state || {}; const clock = state?.simulation_clock || clockForTick(state?.tick || 0); const environment = macro.environment || { stage: "normal", title: "Clear weather", description: "Normal city movement and routines.", severity: 0 }; const cyclone = state?.cyclone_dashboard || {}; const dashboardMode = cycloneModeOf(cyclone, environment); const foodShift = Math.round((Number(macro.food_shock_pct) || 0) * 100); const taxRate = Math.round((Number(macro.tax_rate) || .10) * 100); const allAgents = agents.length ? agents : DEMO_AGENTS;
   const filteredAgents = useMemo(() => { const q = query.toLowerCase().trim(); return allAgents.filter((agent) => { const matchesQuery = !q || `${agent.name} ${agent.occupation}`.toLowerCase().includes(q); const status = statusOf(agent); const matchesLayer = layer === "all" || (layer === "risk" && status === "risk") || (layer === "workers" && status === "stable") || (layer === "students" && status === "student"); return matchesQuery && matchesLayer; }); }, [allAgents, layer, query]);
-  const movement = state?.movement || {}; const selected = selectedAgent || filteredAgents[0] || allAgents[0]; const total = metrics.total_agents || allAgents.length; const atRisk = metrics.distressed_count ?? allAgents.filter((agent) => statusOf(agent) === "risk").length; const employment = allAgents.length ? Math.round((1 - allAgents.filter((agent) => statusOf(agent) === "unemployed").length / allAgents.length) * 100) : 0; const placeInfo = PLACE_META[selectedPlace]; const selectedPlaceAgents = allAgents.filter((agent) => agent.current_hub === selectedPlace || agent.target_hub === selectedPlace);
+  const movement = state?.movement || {}; const selected = allAgents.find((agent) => agent.id === selectedAgent?.id) || filteredAgents[0] || allAgents[0]; const total = metrics.total_agents || allAgents.length; const atRisk = metrics.distressed_count ?? allAgents.filter((agent) => statusOf(agent) === "risk").length; const employment = allAgents.length ? Math.round((1 - allAgents.filter((agent) => statusOf(agent) === "unemployed").length / allAgents.length) * 100) : 0; const placeInfo = PLACE_META[selectedPlace]; const selectedPlaceAgents = allAgents.filter((agent) => agent.current_hub === selectedPlace || agent.target_hub === selectedPlace);
 
-  async function loadData() { try { const response = await fetch("/api/state"); if (!response.ok) throw new Error("The local model is not responding yet."); const next = await response.json(); setState(next); const people = await fetch("/api/agents?limit=50"); if (people.ok) { const data = await people.json(); setAgents(data.agents || []); if (!selectedAgent && data.agents?.length) setSelectedAgent(data.agents[0]); } setError(""); } catch (err) { setError("Preview mode · start python app.py to connect the live model"); } }
-  async function step(automatic = false) { setBusy(true); try { const response = await fetch(automatic === true ? "/api/step?automatic=true" : "/api/step", { method: "POST" }); if (response.ok) { setState(await response.json()); const people = await fetch("/api/agents?limit=50"); if (people.ok) setAgents((await people.json()).agents || []); } } catch (err) { setError("The city is paused while the local model reconnects."); } finally { setBusy(false); } }
-  async function event(eventType, magnitude, label) { setBusy(true); setNotice(label); try { const before = metrics; const response = await fetch("/api/event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event_type: eventType, magnitude }) }); if (response.ok) { const payload = await response.json(); const after = payload.new_metrics || {}; const beforeRisk = before.distressed_count ?? "—"; const afterRisk = after.distressed_count ?? "—"; const detail = eventType === "food_price_shock" ? `Essential costs rise · pressure ${beforeRisk} → ${afterRisk} residents` : eventType === "tax_change" ? `Take-home pay shifts · danger ${beforeRisk} → ${afterRisk} residents` : eventType.startsWith("cyclone") ? `Weather stage changed · danger ${beforeRisk} → ${afterRisk} residents` : eventType === "cash_stimulus" ? "Targeted transfers reach vulnerable households" : "All scenario values returned to baseline"; setImpact({ title: label, detail, support: eventType === "cash_stimulus" ? money(magnitude) : eventType === "reset_baseline" ? "0 BDT" : impact.support }); await loadData(); } } catch (err) { setError("Scenario preview only · connect the server to apply it to the model"); } finally { setBusy(false); } }
-  async function applySupport() { if (!selected?.id) return; setBusy(true); try { const response = await fetch(`/api/agents/${encodeURIComponent(selected.id)}/support`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ support_type: selected.next_action?.support_type || "auto" }) }); if (!response.ok) throw new Error("Support could not be applied."); const payload = await response.json(); const before = Math.round((Number(payload.before_risk) || 0) * 100); const after = Math.round((Number(payload.after_risk) || 0) * 100); setSelectedAgent(payload.agent); setImpact({ title: "Targeted support applied", detail: `${payload.description} · risk ${before}% → ${after}% · danger ${payload.before_danger_count} → ${payload.after_danger_count} residents`, support: "Personalized" }); await loadData(); setSelectedAgent(payload.agent); } catch (err) { setError("Support could not be applied while the local model is reconnecting."); } finally { setBusy(false); } }
+  const pending = useRef(0);
+  const tail = useRef(Promise.resolve());
+
+  function runAction(action, automatic = false) {
+    if (automatic && (pending.current || document.hidden)) return;
+    pending.current += 1;
+    if (!automatic) setBusy(true);
+    tail.current = tail.current.then(action).then(() => setError("")).catch((err) => {
+      setError(err.message || "The city could not be updated. Please retry.");
+    }).finally(() => {
+      pending.current -= 1;
+      if (!pending.current) setBusy(false);
+    });
+  }
+
+  async function request(url, body, method = "GET") {
+    const options = { method };
+    if (body) {
+      options.headers = { "Content-Type": "application/json" };
+      options.body = JSON.stringify(body);
+    }
+    const response = await fetch(url, options);
+    if (!response.ok) throw new Error(`City request failed (${response.status}). Please retry.`);
+    return response.json();
+  }
+
+  function display(next) {
+    setState(next);
+    setAgents(next.agents_summary);
+  }
+
+  function loadData() {
+    runAction(async () => display(await request("/api/state")));
+  }
+
+  function step(automatic = false) {
+    runAction(async () => display(await request(automatic ? "/api/step?automatic=true" : "/api/step", null, "POST")), automatic);
+  }
+
+  function event(eventType, magnitude, label) {
+    runAction(async () => {
+      const payload = await request("/api/event", { event_type: eventType, magnitude }, "POST");
+      display(payload.state);
+      setNotice(label);
+      setImpact({ title: label, detail: `Residents under pressure: ${payload.new_metrics.distressed_count}`,
+        support: eventType === "cash_stimulus" ? money(magnitude) : eventType === "reset_baseline" ? "0 BDT" : impact.support });
+    });
+  }
+
+  function applySupport() {
+    if (!selected?.id) return;
+    runAction(async () => {
+      const payload = await request(`/api/agents/${encodeURIComponent(selected.id)}/support`,
+        { support_type: selected.next_action?.support_type || "auto" }, "POST");
+      display(payload.state);
+      setSelectedAgent(payload.agent);
+      setImpact({ title: "Targeted support applied", detail: payload.description, support: "Personalized" });
+    });
+  }
   useEffect(() => { loadData(); }, []); useEffect(() => { if (!playing) return undefined; const timer = window.setInterval(() => step(true), REAL_TICK_MS); return () => window.clearInterval(timer); }, [playing]);
 
-  return <div className={`app-shell dashboard-mode-${dashboardMode}`}><header className="topbar"><div className="brand"><span className="brand-mark"><Icon name="pulse" size={20} /></span><span><strong>EcoSim</strong><small>Living city model</small></span></div><div className="topbar-center"><span className="eyebrow">NIGHT SHIFT / DHAKA</span><span className="simulation-clock"><WatchFace clock={clock} /><span><b>{clock.time}</b><small>Day {clock.day} · 15 min / tick</small></span></span><span className="tick-readout">Tick {state?.tick ?? 0}</span></div><div className="top-actions"><span className="connection"><i className="live-dot" />{error ? "Preview" : "Model live"}</span><button className="icon-btn" onClick={() => setPlaying((value) => !value)} title={playing ? "Pause simulation" : "Resume simulation"}><Icon name={playing ? "pause" : "play"} size={15} /><span>{playing ? "Pause" : "Resume"}</span></button><button className="icon-btn" onClick={step} disabled={busy} title="Advance one simulation tick"><Icon name="step" size={15} /><span>Next tick</span></button></div></header>
+  return <div className={`app-shell dashboard-mode-${dashboardMode}`}><header className="topbar"><div className="brand"><span className="brand-mark"><Icon name="pulse" size={20} /></span><span><strong>EcoSim</strong><small>Living city model</small></span></div><div className="topbar-center"><span className="eyebrow">NIGHT SHIFT / DHAKA</span><span className="simulation-clock"><WatchFace clock={clock} /><span><b>{clock.time}</b><small>Day {clock.day} · 15 min / tick</small></span></span><span className="tick-readout">Tick {state?.tick ?? 0}</span></div><div className="top-actions"><span className="connection"><i className="live-dot" />{error ? "Preview" : "Model live"}</span><button className="icon-btn" onClick={() => setPlaying((value) => !value)} title={playing ? "Pause simulation" : "Resume simulation"}><Icon name={playing ? "pause" : "play"} size={15} /><span>{playing ? "Pause" : "Resume"}</span></button><button className="icon-btn" onClick={() => step(false)} disabled={busy} title="Advance one simulation tick"><Icon name="step" size={15} /><span>Next tick</span></button></div></header>
     <main className="dashboard">{dashboardMode !== "normal" && <CycloneCommandCenter cyclone={cyclone} />}<section className="intro-row"><div><div className="eyebrow accent-text">A CITY THAT BREATHES</div><h1>{dashboardMode === "emergency" ? <>Protect the city<br /><em>through the storm.</em></> : dashboardMode === "recovery" ? <>The city<br /><em>finds its way home.</em></> : <>See the city<br /><em>come alive.</em></>}</h1><p className="intro-copy">{dashboardMode === "emergency" ? "Cyclone safety has priority. Agents are evacuating through the existing Decision Engine and A* shelter routes." : dashboardMode === "recovery" ? "The cyclone has passed. Agents are returning home while financial recovery and safe movement continue." : "A calm, human-scale view of work, money, movement, and the small decisions that shape a neighborhood."}</p></div><div className="event-strip"><span className="event-kicker"><Icon name={dashboardMode === "normal" ? "leaf" : "storm"} size={14} /> {dashboardMode === "normal" ? "Economic signal" : "Cyclone signal"}</span><strong>{impact.title || notice}</strong><small>{impact.detail}</small><div className="impact-readout"><span><small>Food price</small><b>+{foodShift}%</b></span><span><small>Tax rate</small><b>{taxRate}%</b></span><span><small>Support</small><b>{impact.support}</b></span></div></div></section>
       <section className="metrics-row"><Metric label="Residents" value={total.toLocaleString()} detail="synthetic citizens" /><Metric label="Employment" value={`${employment}%`} detail="model estimate" tone="blue" /><Metric label="Under pressure" value={atRisk.toLocaleString()} detail="financial risk" tone="amber" /><Metric label="Inequality" value={Number(metrics.gini_coefficient || 0).toFixed(3)} detail="Gini coefficient" tone="pink" /><div className="tick-card"><span className="metric-label">Simulation day</span><strong>{clock.day}</strong><small>96 ticks · 15 min each</small></div></section>
       <section className="workspace-grid"><div className="map-panel panel-dark"><div className="panel-head"><div><span className="eyebrow">{dashboardMode === "normal" ? "THE NEIGHBORHOOD / LIVE MAP" : dashboardMode === "emergency" ? "EMERGENCY MAP / LIVE EVACUATION" : "RECOVERY MAP / RETURN ROUTES"}</span><h2>{dashboardMode === "normal" ? "People, places, and daily journeys" : dashboardMode === "emergency" ? "Shelters, danger zones, and evacuation routes" : "Agents returning safely through the city"}</h2></div><div className="map-tools"><button className={`small-toggle ${showRoutes ? "active" : ""}`} onClick={() => setShowRoutes((value) => !value)}><Icon name="route" size={14} /> Routes</button><span className="map-time">{clock.time} · {movement.traveling_count ?? 0} on the move</span></div></div><CityMap agents={allAgents} selectedAgentId={selected?.id} selectedPlace={selectedPlace} onAgent={(agent) => setSelectedAgent(agent)} onPlace={setSelectedPlace} showRoutes={showRoutes} clock={clock} environment={environment} cycloneDashboard={cyclone} /></div>
@@ -339,15 +390,11 @@ function App() {
       <section className="lower-grid"><section className="people-panel panel-dark"><div className="panel-head"><div><span className="eyebrow">PEOPLE IN MOTION</span><h2>All agents · full profiles</h2></div><div className="filter-tabs">{[["all", "All"], ["workers", "Working"], ["risk", "At risk"], ["students", "Learning"]].map(([value, label]) => <button key={value} className={layer === value ? "active" : ""} onClick={() => setLayer(value)}>{label}</button>)}</div></div><div className="people-toolbar"><div className="search-box"><Icon name="search" size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search a name or occupation" /></div><span className="people-count">{filteredAgents.length} shown</span></div><div className="people-list">{filteredAgents.map((agent) => <details className={`agent-record ${selected?.id === agent.id ? "selected" : ""}`} key={agent.id} open><summary className="person-row" onClick={() => setSelectedAgent(agent)}><span className={`mini-avatar avatar-${statusOf(agent)}`}>{String(agent.name || "C").split(" ").map((word) => word[0]).slice(0, 2).join("")}</span><span className="person-main"><strong>{agent.name}</strong><small>{agent.occupation || "Resident"} · {activityOf(agent)} · {agentHub(agent.current_hub)}</small></span><span className="person-money"><strong>{agentMoney(agent.income || agent.monthly_income)}</strong><small>{riskOf(agent)}% risk</small></span><span className="agent-expand">⌄</span></summary><div className="agent-details"><div className="agent-detail-grid">{agentDetail(agent).map(([label, value]) => <div key={label}><small>{label}</small><strong>{agentText(value)}</strong></div>)}</div><div className="agent-action"><span>Recommended action</span><strong>{agent.next_action?.title || "No action required"}</strong><small>{agent.next_action?.description || "Agent is currently stable."}</small></div><button className="agent-select-button" onClick={() => setSelectedAgent(agent)}>Focus this agent</button><details className="agent-raw"><summary>Show raw simulation state</summary><pre>{JSON.stringify(agent, null, 2)}</pre></details></div></details>)}</div></section>
         <section className="scenario-panel panel-dark"><div className="panel-head"><div><span className="eyebrow">WHAT IF?</span><h2>Change the evening</h2></div><Icon name="pulse" size={18} /></div><p className="scenario-copy">Create a shock, inspect a dangerous household, then test a targeted response.</p><div className="scenario-buttons"><button onClick={() => event("food_price_shock", .30, "Food prices +30%")}><span className="scenario-icon amber"><Icon name="market" size={16} /></span><span><strong>Food prices rise</strong><small>+30% essentials · watch red agents</small></span><Icon name="arrow" size={14} /></button><button onClick={() => event("tax_change", .20, "Tax rate 20%")}><span className="scenario-icon blue"><Icon name="civic" size={16} /></span><span><strong>Tax rate changes</strong><small>Take-home pay shifts</small></span><Icon name="arrow" size={14} /></button><button onClick={() => event("cash_stimulus", 5000, "Support arrives")}><span className="scenario-icon green"><Icon name="leaf" size={16} /></span><span><strong>Support arrives</strong><small>5,000 BDT transfer</small></span><Icon name="arrow" size={14} /></button></div><button className="reset-button" onClick={() => event("reset_baseline", 0, "Baseline conditions")}><Icon name="refresh" size={13} /> Return to baseline</button></section></section>
       {error && <div className="notice"><span><i className="notice-dot" />{error}</span><button onClick={loadData}>Reconnect <Icon name="refresh" size={13} /></button></div>}<footer className="footer-note"><span>EcoSim AI · synthetic city data for exploration</span><span>Tick {state?.tick ?? 0} · {busy ? "Updating model…" : "Model ready"}</span></footer>
-    </main></div>;
+    </main><CycloneControls onEvent={event} /></div>;
 }
 
-function CycloneControls() {
-  const trigger = async (eventType, magnitude) => {
-    await fetch("/api/event", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event_type: eventType, magnitude }) });
-    window.location.reload();
-  };
-  return <div className="weather-controls"><span><Icon name="storm" size={15} /><strong>Weather scenario</strong></span><button onClick={() => trigger("cyclone_warning", .55)}>Warning</button><button onClick={() => trigger("cyclone_landfall", .85)}>Landfall</button><button onClick={() => trigger("cyclone_recovery", 0)}>Recover</button></div>;
+function CycloneControls({ onEvent }) {
+  return <div className="weather-controls"><span><Icon name="storm" size={15} /><strong>Weather scenario</strong></span><button onClick={() => onEvent("cyclone_warning", .55, "Cyclone warning")}>Warning</button><button onClick={() => onEvent("cyclone_landfall", .85, "Cyclone landfall")}>Landfall</button><button onClick={() => onEvent("cyclone_recovery", 0, "Cyclone recovery")}>Recover</button></div>;
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<><App /><CycloneControls /></>);
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);

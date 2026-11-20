@@ -51,21 +51,26 @@ def simulation_session(write=False):
     try:
         cursor = connection.cursor()
         if mysql:
-            # TiDB's pessimistic transaction acquires the row lock before changes.
-            cursor.execute("BEGIN PESSIMISTIC")
-            cursor.execute("INSERT IGNORE INTO citypulse_snapshot (snapshot_id, schema_version, state_json) VALUES (%s, %s, %s)", (SNAPSHOT_ID, SCHEMA_VERSION, encode_snapshot(initial_engine)))
-            cursor.execute("SELECT schema_version, state_json FROM citypulse_snapshot WHERE snapshot_id = %s FOR UPDATE", (SNAPSHOT_ID,))
+            select = "SELECT schema_version, state_json, UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) FROM citypulse_snapshot WHERE snapshot_id = %s"
+            if write:
+                cursor.execute("BEGIN PESSIMISTIC")
+                select += " FOR UPDATE"
+            cursor.execute(select, (SNAPSHOT_ID,))
+            row = cursor.fetchone()
+            if row is None:
+                cursor.execute("INSERT IGNORE INTO citypulse_snapshot (snapshot_id, schema_version, state_json) VALUES (%s, %s, %s)", (SNAPSHOT_ID, SCHEMA_VERSION, encode_snapshot(initial_engine)))
+                cursor.execute(select if write else select + " FOR UPDATE", (SNAPSHOT_ID,))
+                row = cursor.fetchone()
         else:
             cursor.execute("BEGIN IMMEDIATE")
             cursor.execute("INSERT OR IGNORE INTO citypulse_snapshot (snapshot_id, schema_version, state_json) VALUES (?, ?, ?)", (SNAPSHOT_ID, SCHEMA_VERSION, encode_snapshot(initial_engine)))
             cursor.execute("SELECT schema_version, state_json FROM citypulse_snapshot WHERE snapshot_id = ?", (SNAPSHOT_ID,))
-        row = cursor.fetchone()
+            row = cursor.fetchone()
         if row is None or row[0] != SCHEMA_VERSION:
             raise RuntimeError("Unsupported or missing simulation snapshot version")
         instance = decode_snapshot(row[1])
         if mysql:
-            cursor.execute("SELECT UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3))")
-            instance._database_now = float(cursor.fetchone()[0])
+            instance._database_now = float(row[2])
         else:
             instance._database_now = time.time()
         previous_tick = instance.tick

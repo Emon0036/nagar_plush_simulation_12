@@ -55,10 +55,11 @@ def step_simulation(automatic: bool = False):
     """Advances simulation cycle by one tick"""
     with simulation_session(write=True) as engine:
         now = engine._database_now
-        if automatic and now - getattr(engine, "last_shared_tick_time", 0) < 1.0:
+        if automatic and now - getattr(engine, "last_shared_tick_time", 0) < 0.5:
             return engine.get_state()
         engine.last_shared_tick_time = now
-        return engine.step()
+        engine.step()
+        return engine.get_state()
 
 @app.post("/api/event")
 def inject_shock_event(req: ShockEventRequest):
@@ -68,6 +69,7 @@ def inject_shock_event(req: ShockEventRequest):
         return {
             "status": "success",
             "event": event,
+            "state": engine.get_state(),
             "new_metrics": engine.metrics_history[-1] if engine.metrics_history else {}
         }
 
@@ -113,7 +115,8 @@ def support_agent(agent_id: str, req: AgentSupportRequest):
     """Apply a small targeted intervention to one vulnerable resident."""
     try:
         with simulation_session(write=True) as engine:
-            return engine.apply_agent_support(agent_id, req.support_type or "auto")
+            result = engine.apply_agent_support(agent_id, req.support_type or "auto")
+            return {**result, "state": engine.get_state()}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
