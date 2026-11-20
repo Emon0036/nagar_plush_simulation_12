@@ -297,15 +297,15 @@ class DatabaseManager:
             except Exception as e:
                 logger.error(f"SQLite record_tick error: {e}")
 
-    def get_history(self, limit: int = 50) -> List[Dict[str, Any]]:
+    def get_history(self, limit: int, run_id: str) -> List[Dict[str, Any]]:
         if self.db_type == "mysql":
             try:
                 conn = self.get_mysql_connection()
                 if conn:
                     cursor = conn.cursor(dictionary=True)
                     cursor.execute("""
-                    SELECT * FROM simulation_history ORDER BY id DESC LIMIT %s
-                    """, (limit,))
+                    SELECT * FROM simulation_history WHERE run_id = %s ORDER BY id DESC LIMIT %s
+                    """, (run_id, limit))
                     rows = cursor.fetchall()
                     cursor.close()
                     conn.close()
@@ -319,8 +319,8 @@ class DatabaseManager:
                 s_conn = self.get_sqlite_connection()
                 cursor = s_conn.cursor()
                 cursor.execute("""
-                SELECT * FROM simulation_history ORDER BY id DESC LIMIT ?
-                """, (limit,))
+                SELECT * FROM simulation_history WHERE run_id = ? ORDER BY id DESC LIMIT ?
+                """, (run_id, limit))
                 rows = [dict(row) for row in cursor.fetchall()]
                 s_conn.close()
                 return list(reversed(rows))

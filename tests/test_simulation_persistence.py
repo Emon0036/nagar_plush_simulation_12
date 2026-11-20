@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 from backend.config import config
 from backend.database.db import db_manager
-from backend.simulation.persistence import simulation_session
-from backend.app import step_simulation
+from backend.simulation.persistence import city_key, simulation_session
+from backend.app import get_history, reset_simulation, step_simulation
 
 
 class SimulationPersistenceTests(unittest.TestCase):
@@ -67,6 +67,26 @@ class SimulationPersistenceTests(unittest.TestCase):
             self.assertEqual(conn.execute("SELECT tick FROM simulation_history").fetchone()[0], 5)
         finally:
             conn.close()
+
+    def test_browser_reset_is_isolated_and_starts_a_new_history(self):
+        token = city_key.set("first-browser")
+        self.addCleanup(city_key.reset, token)
+        for _ in range(5):
+            first = step_simulation()
+        self.assertEqual(len(get_history()), 1)
+        city_key.set("second-browser")
+        second = step_simulation()
+        self.assertEqual(second["tick"], 1)
+        self.assertNotEqual(second["run_id"], first["run_id"])
+        self.assertEqual(get_history(), [])
+        city_key.set("first-browser")
+        fresh = reset_simulation()
+        self.assertNotEqual(fresh["run_id"], first["run_id"])
+        self.assertEqual(fresh["tick"], 0)
+        self.assertEqual(get_history(), [])
+        city_key.set("second-browser")
+        with simulation_session() as city:
+            self.assertEqual(city.get_state(), second)
 
     def test_multiple_automatic_requests_share_one_tick(self):
         with patch("backend.simulation.persistence.time.time", return_value=100.0):

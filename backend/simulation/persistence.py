@@ -1,14 +1,16 @@
 """Transactional storage for the shared, complete simulation state."""
 import json
 import time
+from secrets import token_hex
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime
 
 from backend.database.db import db_manager
 from backend.simulation.agent import CitizenAgent
 from backend.simulation.engine import SimulationEngine, engine as initial_engine
 
-SNAPSHOT_ID = "shared-city"
+city_key = ContextVar("city_key", default="shared-city")
 SCHEMA_VERSION = 1
 
 
@@ -40,9 +42,18 @@ def decode_snapshot(payload):
     return instance
 
 
+def new_city():
+    city = decode_snapshot(encode_snapshot(initial_engine))
+    city.run_id = "run_" + token_hex(16)
+    for metrics in city.metrics_history:
+        metrics["run_id"] = city.run_id
+    return city
+
+
 @contextmanager
-def simulation_session(write=False):
-    """Load the shared city; writers hold a database lock until commit."""
+def simulation_session(write=False, reset=False):
+    """Load this browser's city; writers hold its row lock until commit."""
+    snapshot_id = city_key.get()
     mysql = db_manager.db_type == "mysql"
     connection = db_manager.get_mysql_connection() if mysql else db_manager.get_sqlite_connection()
     if connection is None:
@@ -55,20 +66,23 @@ def simulation_session(write=False):
             if write:
                 cursor.execute("BEGIN PESSIMISTIC")
                 select += " FOR UPDATE"
-            cursor.execute(select, (SNAPSHOT_ID,))
+            cursor.execute(select, (snapshot_id,))
             row = cursor.fetchone()
             if row is None:
-                cursor.execute("INSERT IGNORE INTO citypulse_snapshot (snapshot_id, schema_version, state_json) VALUES (%s, %s, %s)", (SNAPSHOT_ID, SCHEMA_VERSION, encode_snapshot(initial_engine)))
-                cursor.execute(select if write else select + " FOR UPDATE", (SNAPSHOT_ID,))
+                cursor.execute("INSERT IGNORE INTO citypulse_snapshot (snapshot_id, schema_version, state_json) VALUES (%s, %s, %s)", (snapshot_id, SCHEMA_VERSION, encode_snapshot(new_city())))
+                cursor.execute(select if write else select + " FOR UPDATE", (snapshot_id,))
                 row = cursor.fetchone()
         else:
             cursor.execute("BEGIN IMMEDIATE")
-            cursor.execute("INSERT OR IGNORE INTO citypulse_snapshot (snapshot_id, schema_version, state_json) VALUES (?, ?, ?)", (SNAPSHOT_ID, SCHEMA_VERSION, encode_snapshot(initial_engine)))
-            cursor.execute("SELECT schema_version, state_json FROM citypulse_snapshot WHERE snapshot_id = ?", (SNAPSHOT_ID,))
+            cursor.execute("SELECT schema_version, state_json FROM citypulse_snapshot WHERE snapshot_id = ?", (snapshot_id,))
             row = cursor.fetchone()
+            if row is None:
+                payload = encode_snapshot(new_city())
+                cursor.execute("INSERT INTO citypulse_snapshot (snapshot_id, schema_version, state_json) VALUES (?, ?, ?)", (snapshot_id, SCHEMA_VERSION, payload))
+                row = (SCHEMA_VERSION, payload)
         if row is None or row[0] != SCHEMA_VERSION:
             raise RuntimeError("Unsupported or missing simulation snapshot version")
-        instance = decode_snapshot(row[1])
+        instance = new_city() if reset else decode_snapshot(row[1])
         if mysql:
             instance._database_now = float(row[2])
         else:
@@ -77,7 +91,7 @@ def simulation_session(write=False):
         yield instance
         if write:
             placeholder = "%s" if mysql else "?"
-            cursor.execute(f"UPDATE citypulse_snapshot SET state_json = {placeholder} WHERE snapshot_id = {placeholder}", (encode_snapshot(instance), SNAPSHOT_ID))
+            cursor.execute(f"UPDATE citypulse_snapshot SET state_json = {placeholder} WHERE snapshot_id = {placeholder}", (encode_snapshot(instance), snapshot_id))
             if instance.tick != previous_tick and (instance.tick % 5 == 0 or instance.macro_state["food_shock_pct"] > 0):
                 metrics = instance.metrics_history[-1]
                 columns = ("tick", "run_id", "food_shock_pct", "tax_rate", "inflation_rate", "gini_coefficient", "poverty_rate", "avg_savings", "avg_income", "distressed_count")

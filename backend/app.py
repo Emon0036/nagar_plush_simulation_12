@@ -1,4 +1,6 @@
 import os
+import re
+import secrets
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -6,7 +8,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 
-from backend.simulation.persistence import simulation_session
+from backend.simulation.persistence import city_key, simulation_session
 from backend.simulation.city import city_env
 from backend.ai.risk_model import risk_model
 from backend.ai.astar import pathfinder
@@ -26,6 +28,32 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def identify_city(request: Request, call_next):
+    if not request.url.path.startswith("/api/") or request.url.path in ("/api/health", "/api/db-status"):
+        return await call_next(request)
+    cookie = request.cookies.get("nagarpulse_city", "")
+    is_new = not re.fullmatch(r"[0-9a-f]{64}", cookie)
+    key = secrets.token_hex(32) if is_new else cookie
+    token = city_key.set(key)
+    try:
+        response = await call_next(request)
+        response.headers["Cache-Control"] = "private, no-store"
+        if is_new:
+            response.set_cookie("nagarpulse_city", key, max_age=31536000, httponly=True,
+                                secure=bool(os.getenv("VERCEL")) or request.url.scheme == "https",
+                                samesite="strict", path="/api")
+        return response
+    finally:
+        city_key.reset(token)
+
+
+@app.post("/api/reset")
+def reset_simulation():
+    with simulation_session(write=True, reset=True) as engine:
+        return engine.get_state()
+
 
 # Request schemas
 class ShockEventRequest(BaseModel):
@@ -177,7 +205,9 @@ def get_risk_weights():
 @app.get("/api/history")
 def get_history(limit: int = 50):
     """Returns time-series macroeconomic indicator history"""
-    return db_manager.get_history(limit)
+    with simulation_session() as engine:
+        run_id = engine.run_id
+    return db_manager.get_history(limit, run_id)
 
 @app.get("/api/dataset/download/{dataset_name}")
 def download_dataset(dataset_name: str):

@@ -1010,7 +1010,7 @@ function App() {
   const [agents, setAgents] = useState([]);
   const [selectedAgent, setSelectedAgent] = useState(null);
   const [selectedPlace, setSelectedPlace] = useState("housing");
-  const [playing, setPlaying] = useState(true);
+  const [playing, setPlaying] = useState(false);
   const [showRoutes, setShowRoutes] = useState(true);
   const [layer, setLayer] = useState("all");
   const [query, setQuery] = useState("");
@@ -1085,6 +1085,25 @@ function App() {
   }
   function loadData() {
     runAction(async () => display(await request("/api/state")));
+  }
+  function startNewCity() {
+    if (!window.confirm("Start a new city in this browser? Your current progress and scenarios will be replaced.")) return;
+    setPlaying(false);
+    runAction(async () => {
+      const next = await request("/api/reset", null, "POST");
+      display(next);
+      setSelectedAgent(null);
+      setSelectedPlace("housing");
+      setShowRoutes(true);
+      setLayer("all");
+      setQuery("");
+      setNotice("Baseline conditions");
+      setImpact({
+        title: "Baseline conditions",
+        detail: "No economic shift is active",
+        support: "0 BDT"
+      });
+    });
   }
   function step(automatic = false) {
     runAction(async () => display(await request(automatic ? "/api/step?automatic=true" : "/api/step", null, "POST")), automatic);
@@ -1161,7 +1180,7 @@ function App() {
   }, /*#__PURE__*/React.createElement(Icon, {
     name: playing ? "pause" : "play",
     size: 15
-  }), /*#__PURE__*/React.createElement("span", null, playing ? "Pause" : "Resume")), /*#__PURE__*/React.createElement("button", {
+  }), /*#__PURE__*/React.createElement("span", null, playing ? "Pause" : "Play")), /*#__PURE__*/React.createElement("button", {
     className: "icon-btn",
     onClick: () => step(false),
     disabled: busy,
@@ -1169,7 +1188,11 @@ function App() {
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "step",
     size: 15
-  }), /*#__PURE__*/React.createElement("span", null, "Next tick")))), /*#__PURE__*/React.createElement("main", {
+  }), /*#__PURE__*/React.createElement("span", null, "Next tick")), /*#__PURE__*/React.createElement("button", {
+    className: "small-toggle",
+    onClick: startNewCity,
+    disabled: busy || !state
+  }, "Start new city"))), /*#__PURE__*/React.createElement("main", {
     className: "dashboard"
   }, dashboardMode !== "normal" && /*#__PURE__*/React.createElement(CycloneCommandCenter, {
     cyclone: cyclone
@@ -1232,6 +1255,7 @@ function App() {
   }), " Routes"), /*#__PURE__*/React.createElement("span", {
     className: "map-time"
   }, clock.time, " \xB7 ", movement.traveling_count ?? 0, " on the move"))), /*#__PURE__*/React.createElement(CityMap, {
+    key: state?.run_id,
     agents: allAgents,
     selectedAgentId: selected?.id,
     selectedPlace: selectedPlace,
